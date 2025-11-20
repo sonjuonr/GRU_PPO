@@ -1,0 +1,397 @@
+import torch
+import torch.nn as nn
+import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use("TkAgg")
+import torch.nn.functional as F
+import matplotlib.patches as patches
+import rl_utils  # Ensure rl_utils.py is in the same folder
+import scipy.special
+import imageio  # For creating GIF
+import os  # For file/folder management
+
+# 🌟 1. Import Configuration (Identical to training code)
+import config
+
+# ---------------------------------------------------------------------
+# --- Global Config and Parameters (Imported from config) ---
+# ---------------------------------------------------------------------
+device = config.DEVICE
+print(f"Using device: {device}")
+
+
+# ---------------------------------------------------------------------
+# --- Auxiliary Functions (Identical to training code) ---
+# ---------------------------------------------------------------------
+def wrap_to_pi(angle):
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+
+
+def update_movement(x, y, theta, v_D, v_A, DT):
+    theta += v_A * DT
+    theta = wrap_to_pi(theta)
+    x += v_D * np.cos(theta) * DT
+    y += v_D * np.sin(theta) * DT
+    vx = v_D * np.cos(theta)
+    vy = v_D * np.sin(theta)
+    return x, y, theta, vx, vy
+
+
+# ---------------------------------------------------------------------
+# 🌟 Obstacle Class (Identical to training code)
+# ---------------------------------------------------------------------
+class Obstacle:
+    def __init__(self, x, y, vx, vy, speed_range=(0.08, 0.1)):  # Use training speed
+        self.x_init, self.y_init = x, y
+        self.vx_init, self.vy_init = vx, vy
+        self.speed_range = speed_range
+        # Note: reset() is still called, but we'll override its values later
+        self.reset()
+
+    def reset(self, x_init=None, y_init=None):
+        if x_init is not None and y_init is not None:
+            self.x, self.y = x_init, y_init
+        else:
+            self.x = np.random.uniform(config.OBSTACLE_SPAWN_BOX[0], config.OBSTACLE_SPAWN_BOX[1])
+            self.y = np.random.uniform(config.OBSTACLE_SPAWN_BOX[2], config.OBSTACLE_SPAWN_BOX[3])
+
+        angle = np.random.uniform(0, 2 * np.pi)
+        speed = np.random.uniform(*self.speed_range)
+        self.vx = speed * np.cos(angle)
+        self.vy = speed * np.sin(angle)
+
+    def update(self):
+        self.x += self.vx * config.DT
+        self.y += self.vy * config.DT
+        if not (config.SPAWN_BOX[0] < self.x < config.SPAWN_BOX[1]):
+            self.vx *= -1
+        if not (config.SPAWN_BOX[2] < self.y < config.SPAWN_BOX[3]):
+            self.vy *= -1
+
+
+# ---------------------------------------------------------------------
+# 🌟 State Calculation Function (Identical to training code)
+# ---------------------------------------------------------------------
+def calculate_state(robot_x, robot_y, robot_theta, robot_vx, robot_vy,
+                    target_x, target_y, obstacles):
+    dx_goal = target_x - robot_x
+    dy_goal = target_y - robot_y
+    goal_dist = np.hypot(dx_goal, dy_goal)
+    angle_to_goal = np.arctan2(dy_goal, dx_goal)
+    relative_goal_angle = wrap_to_pi(angle_to_goal - robot_theta)
+    goal_cos = np.cos(relative_goal_angle)
+    goal_sin = np.sin(relative_goal_angle)
+    state = [goal_dist, goal_cos, goal_sin]
+    cos_theta = np.cos(-robot_theta)
+    sin_theta = np.sin(-robot_theta)
+
+    for obs in obstacles:
+        rel_x_world = obs.x - robot_x
+        rel_y_world = obs.y - robot_y
+        rel_vx_world = obs.vx - robot_vx
+        rel_vy_world = obs.vy - robot_vy
+        rel_x_robot = rel_x_world * cos_theta - rel_y_world * sin_theta
+        rel_y_robot = rel_x_world * sin_theta + rel_y_world * cos_theta
+        rel_vx_robot = rel_vx_world * cos_theta - rel_vy_world * sin_theta
+        rel_vy_robot = rel_vx_world * sin_theta + rel_vy_world * cos_theta
+        state.extend([rel_x_robot, rel_y_robot, rel_vx_robot, rel_vy_robot])
+
+    return np.array(state), relative_goal_angle
+
+
+# ---------------------------------------------------------------------
+# 🌟 Actor-Critic Networks (Copied from GRU training code)
+# ---------------------------------------------------------------------
+class ActorGRU(nn.Module):
+    def __init__(self, input_dim, hidden_dim, action_dim):
+        super(ActorGRU, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.gru_cell = nn.GRUCell(hidden_dim, hidden_dim)
+        self.action_head = nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x, hidden_state):
+        x = F.relu(self.fc1(x))
+        next_hidden_state = self.gru_cell(x, hidden_state)
+        logits = self.action_head(next_hidden_state)
+        dist = torch.distributions.Categorical(logits=logits)
+        return dist, next_hidden_state
+
+
+class CriticGRU(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(CriticGRU, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.gru_cell = nn.GRUCell(hidden_dim, hidden_dim)
+        self.value_head = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x, hidden_state):
+        x = F.relu(self.fc1(x))
+        next_hidden_state = self.gru_cell(x, hidden_state)
+        value = self.value_head(next_hidden_state)
+        return value, next_hidden_state
+
+
+# ---------------------------------------------------------------------
+# 🌟 PPO Algorithm Class (Testing Version)
+# ---------------------------------------------------------------------
+class PPO_GRU:
+    def __init__(self, state_dim, action_dim, gru_hidden_dim,
+                 actor_lr, critic_lr, lmbda, epochs, eps, gamma, device):
+        self.device = device
+        self.gamma = gamma
+        self.lmbda = lmbda
+        self.epochs = epochs
+        self.eps = eps
+
+        # Instantiate GRU Networks
+        self.actor = ActorGRU(state_dim, gru_hidden_dim, action_dim).to(self.device)
+        self.critic = CriticGRU(state_dim, gru_hidden_dim).to(self.device)
+
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
+
+    def take_action(self, state, actor_hidden):
+        state = torch.as_tensor(state, dtype=torch.float).to(self.device).unsqueeze(0)
+
+        # 🌟 Key: In testing, we use deterministic actions
+        # i.e., choose the action with the highest probability (argmax), not sample
+        with torch.no_grad():
+            dist, next_actor_hidden = self.actor(state, actor_hidden)
+            action = torch.argmax(dist.probs)  # Deterministic action
+            log_prob = dist.log_prob(action)
+
+        return action.item(), log_prob.item(), next_actor_hidden
+
+    def update(self, transition_dict):
+        # This function is not called in testing
+        pass
+
+
+# --- Agent and Obstacle Initialization ---
+# 🌟 All using config
+agent = PPO_GRU(config.STATE_DIM, config.ACTION_DIM, config.GRU_HIDDEN_DIM,
+                config.ACTOR_LR, config.CRITIC_LR, config.LMBDA, config.EPOCHS,
+                config.EPS, config.GAMMA, device)
+
+obstacles = []
+for _ in range(config.NUM_RANDOM_OBSTACLES):
+    obstacles.append(Obstacle(0, 0, 0, 0))  # Initialize with dummy values
+
+# =====================================================================
+# 🎮 Phase 2: GRU-PPO Simulation (GIF Generation)
+# =====================================================================
+print("\n--- STARTING GRU-PPO DYNAMIC SIMULATION ---")
+
+# 1. Load the trained GRU model
+MODEL_NAME_ACTOR = 'gru_ppo_actor_dynamic_final.pth'
+MODEL_NAME_CRITIC = 'gru_ppo_critic_dynamic_final.pth'
+try:
+    agent.actor.load_state_dict(torch.load(MODEL_NAME_ACTOR, map_location=device))
+    agent.critic.load_state_dict(torch.load(MODEL_NAME_CRITIC, map_location=device))
+    agent.actor.eval()
+    agent.critic.eval()
+    print(f"✅ Successfully loaded '{MODEL_NAME_ACTOR}' and '{MODEL_NAME_CRITIC}'.")
+except FileNotFoundError:
+    print(f"⚠️ Model files not found. Ensure models exist.")
+    exit()
+
+# ---------------------------------------------------------------------
+# --- 2. Simulation Environment Setup ---
+# 🌟 [Modification] Replace with a fixed test scenario with longer distance to allow more reaction time
+print("Loading FIXED avoidance test scenario (Extended Distance)...")
+
+# 1. Fixed Robot Start Position and Orientation (y moved from 0.5 to 0.2)
+start_x = 1.5
+start_y = 0.2  # 🌟 Modified (was 0.5)
+start_yaw = np.pi / 2  # Pointing directly up (90 degrees)
+print(f"  Robot Start: ({start_x:.1f}, {start_y:.1f}), Yaw: {start_yaw:.2f} rad")
+
+# 2. Fixed Target Point (y moved from 2.5 to 2.8)
+target_x = 1.5
+target_y = 2.8  # 🌟 Modified (was 2.5)
+print(f"  Target: ({target_x:.1f}, {target_y:.1f})")
+print(f"  Total path distance: {target_y - start_y:.1f} m")
+
+
+# 3. Fixed Obstacle Positions and Velocities
+#    (We manually override the randomness of obs.reset())
+try:
+    # Obstacle 1: Head-on (y moved from 2.0 to 1.7)
+    obstacles[0].x = 1.5
+    obstacles[0].y = 1.7  # 🌟 Modified (was 2.0, increased initial distance)
+    obstacles[0].vx = 0.0
+    # 🌟 Note: Speed increased from -0.01 to -0.1 to make it more threatening. Change back to -0.01 if extremely slow speed is desired.
+    obstacles[0].vy = -0.1
+    print(f"  Obstacle 0 (Head-on): Pos=({obstacles[0].x:.1f}, {obstacles[0].y:.1f}), Vel=({obstacles[0].vx:.1f}, {obstacles[0].vy:.1f})")
+    print(f"  Initial dist to Obs 0: {obstacles[0].y - start_y:.1f} m")
+
+    # Obstacle 2: Crossing (y moved from 1.5 to 1.5)
+    obstacles[1].x = 0.5
+    obstacles[1].y = 1.5  # 🌟 Modified (was 1.5, increased initial distance)
+    obstacles[1].vx = 0.07  # Moving to the right
+    obstacles[1].vy = 0.0
+    print(f"  Obstacle 1 (Crossing): Pos=({obstacles[1].x:.1f}, {obstacles[1].y:.1f}), Vel=({obstacles[1].vx:.1f}, {obstacles[1].vy:.1f})")
+    print(f"  Initial dist to Obs 1: {np.hypot(obstacles[1].x - start_x, obstacles[1].y - start_y):.1f} m")
+
+except IndexError:
+    print(f"Error: This test scenario requires config.NUM_RANDOM_OBSTACLES to be at least 2")
+    exit()
+
+
+# (Code below remains unchanged)
+robot_x, robot_y, robot_theta = start_x, start_y, start_yaw
+robot_vx, robot_vy = 0.0, 0.0
+trajectory_x, trajectory_y = [robot_x], [robot_y]
+collision_flag = False
+# ---------------------------------------------------------------------
+
+
+# --- 3. GIF Setup ---
+FRAME_DIR = "simulation_frames_gru"  # Change folder name
+if not os.path.exists(FRAME_DIR):
+    os.makedirs(FRAME_DIR)
+
+frame_files = []
+fig, ax = plt.subplots(figsize=[8, 8])
+
+print(f"Starting Simulation... Will save frames to '{FRAME_DIR}'")
+
+# 🌟 Key: Initialize GRU hidden state
+actor_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
+
+# --- 4. Simulation Loop ---
+# 🌟 Use max steps from config
+for sim_step in range(config.STEPS_PER_EPISODE):
+    if collision_flag: break
+
+    # --- PPO Action Execution (GRU Version) ---
+    # 1. Calculate current state
+    ppo_state, _ = calculate_state(
+        robot_x, robot_y, robot_theta, robot_vx, robot_vy,
+        target_x, target_y, obstacles
+    )
+
+    # 2. Pass state and *hidden state* to get action
+    action_index, _, next_actor_hidden = agent.take_action(ppo_state, actor_hidden)
+
+    # 3. Update hidden state for the next step
+    actor_hidden = next_actor_hidden
+
+    # 🌟 Use actions from config
+    v_A = config.A[action_index]
+    v_D = config.D[action_index]
+
+    # 4. Update robot position and velocity
+    new_x, new_y, new_theta, new_vx, new_vy = update_movement(
+        robot_x, robot_y, robot_theta, v_D, v_A, config.DT
+    )
+
+    # --- Update Obstacles ---
+    for obs in obstacles:
+        obs.update()
+
+    # --- Collision Detection ---
+    for obs in obstacles:
+        if np.hypot(new_x - obs.x, new_y - obs.y) < (config.R_OBSTACLE + config.R_ROBOT):
+            collision_flag = True
+            print(f"Simulation Ended at step {sim_step}: Collision!")
+            break
+    if collision_flag:
+        break
+
+    # Update robot state
+    robot_x, robot_y, robot_theta = new_x, new_y, new_theta
+    robot_vx, robot_vy = new_vx, new_vy  # Must update velocity
+
+    trajectory_x.append(robot_x)
+    trajectory_y.append(robot_y)
+
+    # Check if target reached
+    if np.hypot(robot_x - target_x, robot_y - target_y) < config.TARGET_REACH_THRESH:
+        print(f"Simulation Ended at step {sim_step}: Target Reached!")
+        break
+
+    # --- 5. Plotting and Saving Frames (🌟 Removed 'if sim_step % 2 == 0:') ---
+
+    ax.cla()  # Clear previous frame
+
+    # Plot Reference Line (Start to Target)
+    ax.plot([start_x, target_x], [start_y, target_y], 'g--', linewidth=1.5, label="Reference Line")
+
+    # Plot Obstacles
+    for i, obs in enumerate(obstacles):
+        circle = plt.Circle((obs.x, obs.y), config.R_OBSTACLE, color='b', alpha=0.5,
+                            label="Obstacle" if i == 0 else "")
+        ax.add_patch(circle)
+        # Plot obstacle velocity vector
+        ax.arrow(obs.x, obs.y, obs.vx * 3, obs.vy * 3, head_width=0.05, head_length=0.1, fc='blue', ec='blue') # Magnify velocity vector for observation
+
+    # Plot Trajectory
+    ax.plot(trajectory_x, trajectory_y, 'r-', linewidth=2, label="GRU-PPO Trajectory")
+
+    # Plot Robot
+    arrow = patches.Arrow(robot_x, robot_y,
+                          0.05 * 2 * np.cos(robot_theta),  # fish_len = 0.05
+                          0.05 * 2 * np.sin(robot_theta),
+                          width=0.05, color='k', label="Robot")
+    ax.add_patch(arrow)
+
+    # Plot Start and Target
+    ax.plot(start_x, start_y, 'go', markersize=8, label="Start")
+    ax.plot(target_x, target_y, 'r*', markersize=12, label="Target")
+
+    # Set plot properties
+    ax.axis('equal')
+    ax.set_xlabel("X [m]", fontsize=14)
+    ax.set_ylabel("Y [m]", fontsize=14)
+    ax.set_title(f"GRU-PPO Simulation (Step: {sim_step + 1}/{config.STEPS_PER_EPISODE})")
+
+    # 🌟 Fixed plot range
+    ax.set_xlim(config.SPAWN_BOX[0] - 0.2, config.SPAWN_BOX[1] + 0.2)
+    ax.set_ylim(config.SPAWN_BOX[2] - 0.2, config.SPAWN_BOX[3] + 0.2)
+
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), loc='upper right')
+    ax.grid(True)
+
+    # Save frame
+    frame_filename = os.path.join(FRAME_DIR, f"frame_{sim_step:04d}.png")
+    fig.savefig(frame_filename)
+    frame_files.append(frame_filename)
+
+# --- Loop Ends ---
+plt.close(fig)
+
+if not collision_flag and sim_step == config.STEPS_PER_EPISODE - 1:
+    print(f"Simulation Ended: Reached max steps ({config.STEPS_PER_EPISODE}).")
+
+# --- 6. Create GIF ---
+if not frame_files:
+    print("No frames were saved. Skipping GIF creation.")
+else:
+    print(f"\nCreating GIF from {len(frame_files)} frames...")
+    images = []
+    for filename in tqdm(frame_files):
+        images.append(imageio.imread(filename))
+
+    # 🌟 Change GIF path
+    gif_path = 'C:/Users/884/Desktop/code for obstacle avoidance/animation/gru_dynamic_avoidance_FIXED_Extended.gif' # Changed name
+    # Ensure folder exists
+    os.makedirs(os.path.dirname(gif_path), exist_ok=True)
+
+    # 🌟 Change duration to slow down speed
+    imageio.mimsave(gif_path, images, duration=0.3)  # Slower speed (~3.3 FPS)
+    print(f"✅ GIF saved as '{gif_path}'")
+
+    # --- 7. Cleanup ---
+    print("Cleaning up frame files...")
+    for filename in frame_files:
+        os.remove(filename)
+    os.rmdir(FRAME_DIR)
+    print("Done.")
