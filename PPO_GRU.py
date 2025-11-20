@@ -11,7 +11,7 @@ import rl_utils
 import scipy.special
 import time
 
-# 🌟 1. 导入配置 和 TensorBoard
+# 🌟 1. Import config and TensorBoard
 import config
 from torch.utils.tensorboard import SummaryWriter
 
@@ -19,8 +19,7 @@ matplotlib.use("TkAgg")
 
 
 # ---------------------------------------------------------------------
-# 🌟 辅助类: Rollout 缓冲区 (N-Step 更新所必需)
-# (与之前相同)
+# 🌟 Auxiliary Class: Rollout Buffer (Necessary for N-Step Update)
 # ---------------------------------------------------------------------
 class RolloutBuffer:
     def __init__(self, buffer_size, state_dim, hidden_dim, device):
@@ -31,17 +30,17 @@ class RolloutBuffer:
         self.clear()
 
     def clear(self):
-        # 存储 N 步的数据
+        # Stores N steps of data
         self.states = torch.zeros((self.buffer_size, self.state_dim), dtype=torch.float32)
         self.actions = torch.zeros((self.buffer_size, 1), dtype=torch.int64)
         self.log_probs = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
         self.rewards = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
         self.dones = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
         self.values = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
-        # 🌟 必须存储 RNN 的隐藏状态
+        # 🌟 Must store the RNN's hidden state
         self.h_actor = torch.zeros((self.buffer_size, self.hidden_dim), dtype=torch.float32)
 
-        self.ptr = 0  # 缓冲区指针
+        self.ptr = 0  # Buffer pointer
 
     def add(self, state, action, log_prob, reward, done, value, h_actor):
         if self.ptr >= self.buffer_size:
@@ -59,23 +58,23 @@ class RolloutBuffer:
         self.ptr += 1
 
     def compute_returns_and_advantages(self, last_value, gamma, lmbda):
-        """计算 GAE (广义优势估计)"""
+        """Calculates GAE (Generalized Advantage Estimation)"""
         last_value = last_value.to('cpu')
         last_gae_lam = 0
 
-        # 我们需要 advantages 和 returns
+        # We need advantages and returns
         self.advantages = torch.zeros_like(self.rewards)
         self.returns = torch.zeros_like(self.rewards)
 
         for t in reversed(range(self.buffer_size)):
             if t == self.buffer_size - 1:
-                next_non_terminal = 1.0 - self.dones[t]  # 检查最后一步是不是 done
+                next_non_terminal = 1.0 - self.dones[t]  # Check if the last step is done
                 next_values = last_value
             else:
                 next_non_terminal = 1.0 - self.dones[t + 1]
                 next_values = self.values[t + 1]
 
-            # GAE 计算
+            # GAE Calculation
             delta = self.rewards[t] + gamma * next_values * next_non_terminal - self.values[t]
             self.advantages[t] = last_gae_lam = delta + gamma * lmbda * next_non_terminal * last_gae_lam
 
@@ -83,12 +82,12 @@ class RolloutBuffer:
         self.returns = self.advantages + self.values
 
     def get_batches(self, minibatch_size):
-        """为 RNN 创建顺序的 mini-batch"""
-        # N-Step 更新: 我们将整个 2048 步的数据分成 N 块
-        # (这是一个简化的实现，没有处理跨 episode 边界)
+        """Creates sequential mini-batches for RNN"""
+        # N-Step Update: We divide the entire 2048 steps of data into N chunks
+        # (This is a simplified implementation, not handling cross-episode boundaries)
         num_minibatches = self.buffer_size // minibatch_size
 
-        # 将所有数据发送到 device
+        # Send all data to device
         self.states = self.states.to(self.device)
         self.actions = self.actions.to(self.device)
         self.log_probs = self.log_probs.to(self.device)
@@ -97,9 +96,9 @@ class RolloutBuffer:
         self.h_actor = self.h_actor.to(self.device)
 
         indices = np.arange(self.buffer_size)
-        # 注意：为了 RNN，我们不应该完全随机打乱 (shuffle)
-        # 我们在这里“随机”选择起始点，但保持 minibatch 内部的顺序性
-        # (这是一个复杂的主题，这里我们使用简化的“随机顺序的顺序块”)
+        # Note: For RNNs, we should not fully shuffle (randomize)
+        # We "randomly" select the starting points here, but maintain order within the minibatch
+        # (This is a complex topic, here we use a simplified "randomly ordered sequential chunk")
         np.random.shuffle(indices.reshape(-1, minibatch_size))
 
         for start in range(0, self.buffer_size, minibatch_size):
@@ -112,12 +111,12 @@ class RolloutBuffer:
                 self.log_probs[batch_indices],
                 self.advantages[batch_indices],
                 self.returns[batch_indices],
-                self.h_actor[batch_indices[0]].unsqueeze(0)  # 🌟 取该块的第一个隐藏状态作为初始状态
+                self.h_actor[batch_indices[0]].unsqueeze(0)  # 🌟 Use the first hidden state of this chunk as the initial state
             )
 
 
 # ---------------------------------------------------------------------
-# --- 辅助函数, 障碍物, 状态计算 (不变, 导入 config) ---
+# --- Auxiliary Functions, Obstacle, State Calculation (imported config) ---
 # ---------------------------------------------------------------------
 def wrap_to_pi(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -134,7 +133,7 @@ def update_movement(x, y, theta, v_D, v_A, DT):
 
 
 class Obstacle:
-    def __init__(self, x, y, vx, vy, speed_range=(0.1, 0.3)):
+    def __init__(self, x, y, vx, vy, speed_range=(0.8, 0.15)):
         self.x_init, self.y_init = x, y
         self.vx_init, self.vy_init = vx, vy
         self.speed_range = speed_range
@@ -186,7 +185,7 @@ def calculate_state(robot_x, robot_y, robot_theta, robot_vx, robot_vy,
 
 
 # ---------------------------------------------------------------------
-# 🌟 Actor-Critic 网络 (不变)
+# 🌟 Actor-Critic Networks 
 # ---------------------------------------------------------------------
 class ActorGRU(nn.Module):
     def __init__(self, input_dim, hidden_dim, action_dim):
@@ -220,8 +219,7 @@ class CriticGRU(nn.Module):
 
 
 # ---------------------------------------------------------------------
-# 🌟 PPO 算法类 (重构以支持 N-Step 更新)
-# (与之前相同)
+# 🌟 PPO Algorithm Class (Refactored to support N-Step Update)
 # ---------------------------------------------------------------------
 class PPO_GRU:
     def __init__(self, state_dim, action_dim, gru_hidden_dim,
@@ -239,21 +237,21 @@ class PPO_GRU:
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
 
     def take_action(self, state, actor_hidden):
-        """(用于 Rollout) - 输出带梯度的动作"""
+        """(Used for Rollout) - Outputs action with gradients"""
         state = torch.as_tensor(state, dtype=torch.float).to(self.device).unsqueeze(0)
 
-        # 评估 Actor
-        self.actor.eval()  # 确保在 rollout 时处于 eval 模式
+        # Evaluate Actor
+        self.actor.eval()  # Ensure eval mode during rollout
         with torch.no_grad():
             dist, next_actor_hidden = self.actor(state, actor_hidden)
-        self.actor.train()  # 切换回 train 模式
+        self.actor.train()  # Switch back to train mode
 
         action = dist.sample()
         log_prob = dist.log_prob(action)
         return action.item(), log_prob.item(), next_actor_hidden
 
     def get_value(self, state, critic_hidden):
-        """(用于 Rollout) - 获取当前状态的价值"""
+        """(Used for Rollout) - Gets the value of the current state"""
         state = torch.as_tensor(state, dtype=torch.float).to(self.device).unsqueeze(0)
 
         self.critic.eval()
@@ -265,11 +263,11 @@ class PPO_GRU:
 
     def update(self, buffer, writer, global_step):
         """
-        N-Step 更新：
-        使用 N 步的缓冲区数据, 训练 K 个 Epoch, 每个 Epoch 分 M 个 Mini-Batch
+        N-Step Update:
+        Uses N steps of buffer data, trains for K Epochs, each Epoch divided into M Mini-Batches
         """
 
-        # 存储损失以便 TensorBoard 记录
+        # Stores loss for TensorBoard logging
         actor_losses = []
         critic_losses = []
         entropies = []
@@ -282,11 +280,11 @@ class PPO_GRU:
                     mb_old_log_probs,
                     mb_advantages,
                     mb_returns,
-                    mb_h_actor_initial,  # 初始隐藏状态
+                    mb_h_actor_initial,  # Initial hidden state
                 ) = batch
 
-                # --- 重新计算 Actor (重放) ---
-                # 我们需要重放整个 mini-batch 序列
+                # --- Recalculate Actor (Replay) ---
+                # We need to replay the entire mini-batch sequence
                 T = len(mb_states)
                 new_log_probs = []
                 new_entropies = []
@@ -299,15 +297,15 @@ class PPO_GRU:
                 new_log_probs = torch.stack(new_log_probs)
                 entropy_loss = torch.stack(new_entropies).mean()
 
-                # --- 重新计算 Critic (重放) ---
-                h_c = mb_h_actor_initial.detach()  # 假设 Actor/Critic 共享状态
+                # --- Recalculate Critic (Replay) ---
+                h_c = mb_h_actor_initial.detach()  # Assume Actor/Critic share state
                 new_values = []
                 for t in range(T):
                     v, h_c = self.critic(mb_states[t].unsqueeze(0), h_c)
                     new_values.append(v.squeeze(0))
                 new_values = torch.stack(new_values)
 
-                # --- PPO 损失计算 ---
+                # --- PPO Loss Calculation ---
                 ratio = torch.exp(new_log_probs - mb_old_log_probs)
                 surr1 = ratio * mb_advantages
                 surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * mb_advantages
@@ -319,7 +317,7 @@ class PPO_GRU:
                         0.5 * critic_loss -
                         config.ENTROPY_COEF * entropy_loss)
 
-                # --- 梯度更新 ---
+                # --- Gradient Update ---
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
                 loss.backward()
@@ -332,14 +330,14 @@ class PPO_GRU:
                 critic_losses.append(critic_loss.item())
                 entropies.append(entropy_loss.item())
 
-        # 🌟 记录日志 (平均值)
+        # 🌟 Log (Average Value)
         writer.add_scalar("Loss/Actor_Loss", np.mean(actor_losses), global_step)
         writer.add_scalar("Loss/Critic_Loss", np.mean(critic_losses), global_step)
         writer.add_scalar("Metrics/Entropy", np.mean(entropies), global_step)
 
 
-# --- 实例化 Agent 和环境 ---
-# 🌟 全部使用 config
+# --- Instantiate Agent and Environment ---
+# 🌟 All using config
 device = config.DEVICE
 agent = PPO_GRU(config.STATE_DIM, config.ACTION_DIM, config.GRU_HIDDEN_DIM,
                 config.ACTOR_LR, config.CRITIC_LR, config.LMBDA, config.EPOCHS,
@@ -351,16 +349,16 @@ obstacles = []
 for _ in range(config.NUM_RANDOM_OBSTACLES):
     obstacles.append(Obstacle(0, 0, 0, 0))
 
-# 🌟 初始化 TensorBoard
+# 🌟 Initialize TensorBoard
 writer = SummaryWriter(config.LOG_DIR)
 print(f"Logging to {config.LOG_DIR}, using device {device}")
 print(f"Total timesteps: {config.TOTAL_TIMESTEPS}, Rollout size: {config.ROLLOUT_STEPS}")
 
 # ---------------------------------------------------------------------
-# 🌟 步骤 4: PPO 训练主循环 (N-Step 版本)
+# 🌟 Step 4: PPO Training Main Loop (N-Step Version)
 # ---------------------------------------------------------------------
 
-# --- 初始化环境状态 ---
+# --- Initialize Environment State ---
 start_x = np.random.uniform(config.SPAWN_BOX[0], config.SPAWN_BOX[1])
 start_y = np.random.uniform(config.SPAWN_BOX[2], config.SPAWN_BOX[3])
 start_yaw = np.random.uniform(-np.pi, np.pi)
@@ -375,26 +373,26 @@ x, y, theta = start_x, start_y, start_yaw
 vx, vy = 0.0, 0.0
 state, _ = calculate_state(x, y, theta, vx, vy, target_x, target_y, obstacles)
 
-# --- 初始化 RNN 隐藏状态 ---
+# --- Initialize RNN Hidden States ---
 actor_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
-critic_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)  # 我们需要它来获取 value
+critic_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)  # We need it to get the value
 
-# --- 初始化日志追踪器 ---
+# --- Initialize Log Trackers ---
 global_step = 0
 num_updates = config.TOTAL_TIMESTEPS // config.ROLLOUT_STEPS
 start_time = time.time()
 
-# --- 主训练循环 ---
+# --- Main Training Loop ---
 for update_num in tqdm(range(1, num_updates + 1)):
 
-    # 清空缓冲区，准备收集 N 步数据
+    # Clear the buffer, prepare to collect N steps of data
     buffer.clear()
 
-    # 临时追踪器，用于记录 rollout 期间的奖励
+    # Temporary trackers to record reward during rollout
     ep_rewards = []
     ep_successes = []
     ep_lengths = []
-    # 🌟 修复 1: 添加新的列表
+    # 🌟 Fix 1: Add new lists
     ep_rew_success = []
     ep_rew_collision = []
     ep_rew_shaping = []
@@ -404,7 +402,7 @@ for update_num in tqdm(range(1, num_updates + 1)):
 
     current_episode_reward = 0
     current_episode_len = 0
-    # 🌟 修复 2: 添加新的累加器
+    # 🌟 Fix 2: Add new accumulators
     current_ep_rew_success = 0
     current_ep_rew_collision = 0
     current_ep_rew_shaping = 0
@@ -413,41 +411,36 @@ for update_num in tqdm(range(1, num_updates + 1)):
     current_ep_rew_step = 0
 
     # ---------------------------------
-    # 1. ROLLOUT (数据收集)
+    # 1. ROLLOUT (Data Collection)
     # ---------------------------------
     for step in range(config.ROLLOUT_STEPS):
         global_step += 1
         current_episode_len += 1
 
-        # --- 动作选择 ---
+        # --- Action Selection ---
         action, log_prob, next_actor_hidden = agent.take_action(state, actor_hidden)
-        value, next_critic_hidden = agent.get_value(state, critic_hidden)  # 必须获取 value
+        value, next_critic_hidden = agent.get_value(state, critic_hidden)  # Must get the value
 
         v_A = config.A[action]
         v_D = config.D[action]
 
-        # --- 环境步进 ---
+        # --- Environment Step ---
         x, y, theta, vx, vy = update_movement(x, y, theta, v_D, v_A, config.DT)
         for obs in obstacles:
             obs.update()
         next_state, relative_goal_angle = calculate_state(x, y, theta, vx, vy, target_x, target_y, obstacles)
 
-        # --- 奖励计算 (使用 config) ---
+        # --- Reward Calculation (Using config) ---
         dist_to_target = next_state[0]
         last_goal_dist = state[0]
 
+        # --- Initialize default values ---
         done = False
         success = 0
+        reward_collision = 0.0
+        reward_success = 0.0
 
-        # 1. 成功
-        if dist_to_target < config.TARGET_REACH_THRESH:
-            reward_success = config.REWARD_SUCCESS
-            success = 1
-            done = True
-        else:
-            reward_success = 0.0
-
-        # 2. 碰撞
+        # --- 1. Priority Check for Collision ---
         collided = False
         min_dist_to_obs = float('inf')
         for obs in obstacles:
@@ -456,30 +449,62 @@ for update_num in tqdm(range(1, num_updates + 1)):
             if dist < (config.R_OBSTACLE + config.R_ROBOT):
                 collided = True
                 break
+
         if collided:
+            # Failure: Collision occurred (Highest priority)
             reward_collision = config.REWARD_COLLISION
             done = True
-        else:
-            reward_collision = 0.0
+            success = 0  # Explicitly mark as unsuccessful
 
-        # 3. 超时 (如果步数达到上限)
-        if current_episode_len >= config.STEPS_PER_EPISODE:
-            done = True
-
-        # 4. 其他奖励
-        reward_shaping = (last_goal_dist - dist_to_target) * config.REWARD_SHAPING_WEIGHT
-        reward_heading = config.REWARD_HEADING_WEIGHT * abs(relative_goal_angle)
-        if min_dist_to_obs < 0.5:
-            reward_obstacle = config.REWARD_OBSTACLE_WEIGHT * (1 - min_dist_to_obs / 0.5)
-        else:
+            # [!!! Crucial Fix !!!]
+            # When the episode ends, all shaping rewards must be 0
+            reward_shaping = 0.0
+            reward_heading = 0.0
             reward_obstacle = 0.0
-        reward_step = config.REWARD_STEP_WEIGHT
+            reward_step = 0.0
 
-        # 总奖励
+        elif dist_to_target < config.TARGET_REACH_THRESH:
+            # Success: Reached target (Second priority)
+            reward_success = config.REWARD_SUCCESS
+            done = True
+            success = 1  # Explicitly mark as successful
+
+            # [!!! Crucial Fix !!!]
+            reward_shaping = 0.0
+            reward_heading = 0.0
+            reward_obstacle = 0.0
+            reward_step = 0.0
+
+        elif current_episode_len >= config.STEPS_PER_EPISODE:
+            # Failure: Timeout (Third priority)
+            done = True
+            success = 0  # Explicitly mark as unsuccessful
+
+            # [!!! Crucial Fix !!!]
+            reward_shaping = 0.0
+            reward_heading = 0.0
+            reward_obstacle = 0.0
+            reward_step = 0.0
+
+        else:
+            # Episode continues: Calculate all shaping rewards
+            done = False
+            success = 0
+
+            # [!!! Crucial Fix: All shaping rewards are calculated only here !!!]
+            reward_shaping = (last_goal_dist - dist_to_target) * config.REWARD_SHAPING_WEIGHT
+            reward_heading = config.REWARD_HEADING_WEIGHT * abs(relative_goal_angle)
+            if min_dist_to_obs < 1.0:  # Ensure the danger zone radius is 1.0
+                reward_obstacle = config.REWARD_OBSTACLE_WEIGHT * (1.0 - min_dist_to_obs / 1.0)
+            else:
+                reward_obstacle = 0.0
+            reward_step = config.REWARD_STEP_WEIGHT
+
+            # Total Reward (This sum is now logically correct)
         reward = (reward_success + reward_collision + reward_shaping +
                   reward_heading + reward_obstacle + reward_step)
 
-        # 🌟 修复 3: 分别累加
+        # 🌟 Fix 3: Accumulate separately
         current_ep_rew_success += reward_success
         current_ep_rew_collision += reward_collision
         current_ep_rew_shaping += reward_shaping
@@ -489,17 +514,17 @@ for update_num in tqdm(range(1, num_updates + 1)):
 
         current_episode_reward += reward
 
-        # --- 存储到缓冲区 ---
+        # --- Store to Buffer ---
         buffer.add(state, action, log_prob, reward, done, value, actor_hidden)
 
-        # 更新状态
+        # Update state
         state = np.copy(next_state)
         actor_hidden = next_actor_hidden
-        critic_hidden = next_critic_hidden  # Critic 隐藏状态也必须更新
+        critic_hidden = next_critic_hidden  # Critic hidden state must also be updated
 
-        # --- 如果 episode 结束 (Done) ---
+        # --- If episode ends (Done) ---
         if done:
-            # 🌟 修复 4a: 记录所有分项
+            # 🌟 Fix 4a: Log all components
             ep_rewards.append(current_episode_reward)
             ep_successes.append(success)
             ep_lengths.append(current_episode_len)
@@ -511,7 +536,7 @@ for update_num in tqdm(range(1, num_updates + 1)):
             ep_rew_obstacle.append(current_ep_rew_obstacle)
             ep_rew_step.append(current_ep_rew_step)
 
-            # --- 重置环境 ---
+            # --- Reset Environment ---
             start_x = np.random.uniform(config.SPAWN_BOX[0], config.SPAWN_BOX[1])
             start_y = np.random.uniform(config.SPAWN_BOX[2], config.SPAWN_BOX[3])
             start_yaw = np.random.uniform(-np.pi, np.pi)
@@ -524,11 +549,11 @@ for update_num in tqdm(range(1, num_updates + 1)):
             vx, vy = 0.0, 0.0
             state, _ = calculate_state(x, y, theta, vx, vy, target_x, target_y, obstacles)
 
-            # 🌟 重置 RNN 隐藏状态
+            # 🌟 Reset RNN Hidden States
             actor_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
             critic_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
 
-            # 🌟 修复 4b: 重置所有累加器
+            # 🌟 Fix 4b: Reset all accumulators
             current_episode_reward = 0
             current_episode_len = 0
 
@@ -540,29 +565,29 @@ for update_num in tqdm(range(1, num_updates + 1)):
             current_ep_rew_step = 0
 
     # ---------------------------------
-    # 2. GAE 计算 与 PPO 更新
+    # 2. GAE Calculation and PPO Update
     # ---------------------------------
 
-    # 获取 N 步中最后一步的价值, 用于 GAE
+    # Get the value of the last step in N steps, used for GAE
     with torch.no_grad():
         last_value, _ = agent.get_value(state, critic_hidden)
 
-    # 计算 GAE 和 Returns
+    # Calculate GAE and Returns
     buffer.compute_returns_and_advantages(torch.tensor([last_value]).to(device), config.GAMMA, config.LMBDA)
 
-    # 执行 PPO 更新
+    # Perform PPO Update
     agent.update(buffer, writer, global_step)
 
-    # --- 3. 记录日志 (Rollout 级别) ---
+    # --- 3. Log (Rollout Level) ---
     sps = int(global_step / (time.time() - start_time))
     writer.add_scalar("Metrics/SPS (Steps Per Second)", sps, global_step)
 
-    if len(ep_rewards) > 0:  # 只有在 rollout 中有 episode 结束时才记录
+    if len(ep_rewards) > 0:  # Only log if episodes ended during the rollout
         writer.add_scalar("Episode/Mean_Reward", np.mean(ep_rewards), global_step)
         writer.add_scalar("Episode/Mean_Success_Rate", np.mean(ep_successes), global_step)
         writer.add_scalar("Episode/Mean_Length", np.mean(ep_lengths), global_step)
 
-        # 🌟 修复 5: 在此处添加所有奖励分项的日志
+        # 🌟 Fix 5: Add logs for all reward components here
         writer.add_scalar("Reward_Components/Mean_Success", np.mean(ep_rew_success), global_step)
         writer.add_scalar("Reward_Components/Mean_Collision", np.mean(ep_rew_collision), global_step)
         writer.add_scalar("Reward_Components/Mean_Shaping", np.mean(ep_rew_shaping), global_step)
@@ -570,12 +595,12 @@ for update_num in tqdm(range(1, num_updates + 1)):
         writer.add_scalar("Reward_Components/Mean_Obstacle", np.mean(ep_rew_obstacle), global_step)
         writer.add_scalar("Reward_Components/Mean_Step_Penalty", np.mean(ep_rew_step), global_step)
 
-    # 每 100 次更新保存一次模型
+    # Save model every 100 updates
     if update_num % 100 == 0:
         torch.save(agent.actor.state_dict(), f'gru_ppo_actor_{update_num}.pth')
         torch.save(agent.critic.state_dict(), f'gru_ppo_critic_{update_num}.pth')
 
-# --- 训练结束 ---
+# --- Training Ends ---
 writer.close()
 print("Training finished. Saving final models.")
 torch.save(agent.actor.state_dict(), 'gru_ppo_actor_dynamic_final.pth')
