@@ -32,10 +32,10 @@ The model demonstrates stable convergence and robust obstacle avoidance capabili
 
 | **Training Metrics** | **Description** |
 | :---: | :--- |
-| ![Success Rate](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure3.png?raw=true) | **Success Rate & Rewards:** The agent achieves a stable success rate with minimized collision penalties, learning to navigate efficiently without crashing. |
-| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure4.png?raw=true) | **Actor & Critic Loss:** The Critic Loss converges to a stable low value (~7.5), indicating the GRU successfully captured the environmental dynamics. |
-| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure2.png?raw=true) | **Entropy & SPS:** Entropy decreases steadily, showing the agent transitioning from random exploration to a confident, deterministic policy. |
-| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure1.png?raw=true) | **Detailed Rewards:** Breakdown of specific reward components (Heading, Obstacle Proximity, Shaping), showing how the agent optimizes trajectory. |
+| ![Success Rate](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure3.png?raw=true) | **Success Rate & Rewards:** Aggressive Breakthrough: The agent achieves a stable ~42% Success Rate, a 2x improvement over baseline. The Mean Length drops to ~133 steps, indicating a "Speed-Run" strategy: the agent learns to minimize exposure to the high-penalty danger zones by navigating through them as quickly as possible.|
+| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure4.png?raw=true) | **Actor & Critic Loss:** Capacity Bottleneck Identified: While the Critic Loss stabilizes around ~20, its high variance suggests that the current 64-unit GRU is reaching its memory capacity limit in this complex dynamic environment. Future iterations will scale to 128/256 units to further reduce prediction error.|
+| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure2.png?raw=true) | **Entropy & SPS:** Active Adaptation: Entropy remains moderately high (~0.65), reflecting that the agent is still actively exploring fine-grained control policies to handle the delicate balance between the high-speed inertia and the strict obstacle penalties.|
+| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure1.png?raw=true) | **Detailed Rewards:** Effective Constraints: The Obstacle Penalty graph confirms the agent is heavily penalized for risky proximity, validating that the new safety constraints are actively shaping the policy, preventing the agent from loitering in dangerous areas.|
 
 ## 🛠️ Requirements
 
