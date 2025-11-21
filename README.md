@@ -1,11 +1,10 @@
-# GRU_PPO
 # GRU-PPO for Dynamic Obstacle Avoidance 🤖🐟
 
-![Simulation Demo](https://github.com/sonjuonr/GRU_PPO/blob/main/gru_dynamic_avoidance_FIXED_Extended.gif?raw=true)
+![Simulation Demo](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/gru_dynamic_avoidance_final.gif?raw=true)
 
 ## 📖 Introduction
 
-This project implements a Deep Reinforcement Learning (DRL) framework for autonomous navigation in environments with **dynamic obstacles** and **physical inertia** (e.g., robotic fish underwater navigation).
+This project implements a **Deep Reinforcement Learning (DRL)** framework for autonomous navigation in environments with **dynamic obstacles** and **physical inertia** (e.g., robotic fish underwater navigation).
 
 The core algorithm combines **PPO (Proximal Policy Optimization)** with a **GRU (Gated Recurrent Unit)** network. Unlike standard MLP-based approaches, the GRU architecture provides the agent with **memory**, enabling it to handle **POMDP (Partially Observable Markov Decision Process)** scenarios. By encoding historical state information, the agent can implicitly infer the velocity and trajectory of moving obstacles, resulting in smooth, anticipatory, and safe avoidance behaviors.
 
@@ -13,8 +12,30 @@ The core algorithm combines **PPO (Proximal Policy Optimization)** with a **GRU 
 
 * **Memory-Augmented Agent:** Utilizes GRU hidden states to capture temporal dependencies, allowing the agent to "see" speed and acceleration from raw positional data.
 * **High-Fidelity Control:** Optimized for high-frequency control (`DT=0.1s`) with a long planning horizon (`GAMMA=0.99`), suitable for robots with physical inertia.
-* **Robust Reward Shaping:** Features a carefully tuned reward function that balances target-seeking "greed" with obstacle-avoidance "safety," resolving issues of local optima and sparse rewards.
+* **Safety-First Reward Structure:** Implements a strictly prioritized reward mechanism that solves the "suicidal greed" problem common in RL, forcing the agent to prioritize safety over speed.
 * **Visualization:** Integrated with TensorBoard for real-time monitoring of Loss, Entropy, Collision Rate, and Success Rate.
+
+## 🚀 Key Improvements (Nov 21 Update)
+
+This version introduces significant improvements over baseline implementations:
+
+1.  **Logic Fix:** Implemented strict mutual exclusivity between `Collision`, `Success`, and `Timeout` events to prevent "Collision-Success" logic bugs.
+2.  **Physics Tuning:** Reduced simulation time step (`DT`) to **0.1s** and increased obstacle detection radius to **0.8m-1.0m** to account for the robot's turning radius and physical inertia.
+3.  **Reward Shaping:** Inverted the "Greed vs. Fear" ratio.
+    * Increased Obstacle Penalty (`-1.2`) to strictly outweigh Shaping Reward (`0.4`).
+    * This forces the agent to choose safe detours instead of risky shortcuts.
+4.  **Architecture:** Increased GRU hidden dimension to **128** to better capture complex dynamic environments.
+
+## 📊 Training Results
+
+The model demonstrates stable convergence and robust obstacle avoidance capabilities (Results from `results_1121`).
+
+| **Training Metrics** | **Description** |
+| :---: | :--- |
+| ![Success Rate](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure3.png?raw=true) | **Success Rate & Rewards:** The agent achieves a stable success rate with minimized collision penalties, learning to navigate efficiently without crashing. |
+| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure4.png?raw=true) | **Actor & Critic Loss:** The Critic Loss converges to a stable low value (~7.5), indicating the GRU successfully captured the environmental dynamics. |
+| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure2.png?raw=true) | **Entropy & SPS:** Entropy decreases steadily, showing the agent transitioning from random exploration to a confident, deterministic policy. |
+| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure1.png?raw=true) | **Detailed Rewards:** Breakdown of specific reward components (Heading, Obstacle Proximity, Shaping), showing how the agent optimizes trajectory. |
 
 ## 🛠️ Requirements
 
@@ -40,17 +61,17 @@ This project is developed and tested with **Python 3.9**.
     pip install torch==2.2.0 torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu121](https://download.pytorch.org/whl/cu121)
     
     # Install other required packages
-    pip install numpy matplotlib tensorboard tqdm scipy
+    pip install numpy matplotlib tensorboard tqdm scipy imageio
     ```
 
 ## 📂 File Structure
 
 ```text
 ├── config.py           # [Core] Configuration for hyperparameters, environment physics, and rewards
-├── PPO_GRU.py        # Main training script for the GRU-PPO agent
-├── test_gru.py         # Evaluation script to visualize trained models
-├── test_gru——fixed.py  # simulation file with fixed obstacles
+├── PPO_GRU.py          # Main training script for the GRU-PPO agent
+├── test_gru.py         # Evaluation script to visualize trained models with dynamic obstacles
+├── test_gru_fixed.py   # Simulation script with fixed obstacle scenarios for debugging
 ├── rl_utils.py         # Utility functions (GAE calculation, etc.)
 ├── runs/               # Directory for TensorBoard logs
+├── results_1121/       # Training result figures and gifs
 └── README.md           # Project documentation
-
