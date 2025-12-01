@@ -15,6 +15,8 @@ The core algorithm combines **PPO (Proximal Policy Optimization)** with a **GRU 
 * **Safety-First Reward Structure:** Implements a strictly prioritized reward mechanism that solves the "suicidal greed" problem common in RL, forcing the agent to prioritize safety over speed.
 * **Visualization:** Integrated with TensorBoard for real-time monitoring of Loss, Entropy, Collision Rate, and Success Rate.
 
+## 🚀 Key Improvements (Dec 1 Update)
+I found that i made a big mistake. I mistakenly set 0.08 to 0.8, but i didn’t find it in past two weeks. I believe that’s the main reason why the succ rate is so low. I have fixed it and run again. Let's see what the results will change.
 ## 🚀 Key Improvements (Nov 21 Update)
 
 This version introduces significant improvements over baseline implementations:
