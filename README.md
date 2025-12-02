@@ -45,10 +45,11 @@ The following visualizations analyze the performance of the **Conservative Model
 
 | **Training Metrics** | **Analysis & Interpretation** |
 | :---: | :--- |
-| ![Episode Stats](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure3.png?raw=true) | **Stability & Safety:** The *Mean Success Rate* shows a robust upward trend, stabilizing at a high level. The *Mean Length* is consistent, reflecting the model's tendency to choose longer, safer detours rather than risky shortcuts. |
-| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure4.png?raw=true) | **Convergence:** Both *Actor* and *Critic* losses show healthy convergence patterns. The Critic Loss stabilizes effectively, indicating the GRU has successfully learned to predict the value of safe states in a dynamic environment. |
-| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure2.png?raw=true) | **Policy Confidence:** *Entropy* decreases steadily, proving the agent has transitioned from random exploration to a confident, deterministic policy focused on hazard avoidance. |
-| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure1.png?raw=true) | **Behavioral Guidance:** The breakdown shows that *Obstacle Penalties* are effectively minimized over time, confirming the agent is actively learning to stay clear of the defined danger zones. |
+| ![Episode Stats](https://github.com/sonjuonr/GRU_PPO/blob/main/results%2012_2/length_reward_succ_rate.png?raw=true) | **Stability & Safety:** The *Mean Success Rate* shows a robust upward trend, stabilizing at a high level. The *Mean Length* is consistent, reflecting the model's tendency to choose longer, safer detours rather than risky shortcuts. |
+| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results%2012_2/actor_critic_loss.png?raw=true) | **Convergence:** Both *Actor* and *Critic* losses show healthy convergence patterns. The Critic Loss stabilizes effectively, indicating the GRU has successfully learned to predict the value of safe states in a dynamic environment. |
+| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results%2012_2/entropy_SPS.png?raw=true) | **Policy Confidence:** *Entropy* decreases steadily, proving the agent has transitioned from random exploration to a confident, deterministic policy focused on hazard avoidance. |
+| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results%2012_2/collision_heading_obstacle.png?raw=true) | **Behavioral Guidance:** The breakdown shows that *Obstacle Penalties* are effectively minimized over time, confirming the agent is actively learning to stay clear of the defined danger zones. |
+| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results%2012_2/shaping_steppenalty_succ.png?raw=true) | **Behavioral Guidance:** These two reward components parts show that the parameter of reward and penalty of each part has been debuged well. Just check the exact number and the converge trend. |
 
 ## ⚠️ Known Limitations & Future Work
 
