@@ -1,6 +1,6 @@
 # GRU-PPO for Dynamic Obstacle Avoidance 🤖🐟
 
-![Simulation Demo](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/gru_dynamic_avoidance_final.gif?raw=true)
+![Simulation Demo](https://github.com/sonjuonr/GRU_PPO/blob/main/gru_dynamic_avoidance_FIXED_Extended.gif?raw=true)
 
 ## 📖 Introduction
 
@@ -12,32 +12,52 @@ The core algorithm combines **PPO (Proximal Policy Optimization)** with a **GRU 
 
 * **Memory-Augmented Agent:** Utilizes GRU hidden states to capture temporal dependencies, allowing the agent to "see" speed and acceleration from raw positional data.
 * **High-Fidelity Control:** Optimized for high-frequency control (`DT=0.1s`) with a long planning horizon (`GAMMA=0.99`), suitable for robots with physical inertia.
-* **Safety-First Reward Structure:** Implements a strictly prioritized reward mechanism that solves the "suicidal greed" problem common in RL, forcing the agent to prioritize safety over speed.
+* **Robust Reward Shaping:** Features a carefully tuned reward function that balances target-seeking "greed" with obstacle-avoidance "safety," resolving issues of local optima and sparse rewards.
 * **Visualization:** Integrated with TensorBoard for real-time monitoring of Loss, Entropy, Collision Rate, and Success Rate.
 
 ## 🚀 Key Improvements (Dec 1 Update)
-I found that i made a big mistake. I mistakenly set 0.08 to 0.8, but i didn’t find it in past two weeks. I believe that’s the main reason why the succ rate is so low. I have fixed it and run again. Let's see what the results will change.
-## 🚀 Key Improvements (Nov 21 Update)
 
-This version introduces significant improvements over baseline implementations:
+**Critical Physics Correction:** We identified and fixed a major discrepancy in the simulation environment. The dynamic obstacle speed range was previously set to `0.8 - 0.15 m/s` (significantly faster than the robot's `0.1 m/s`), making collision avoidance physically impossible in many scenarios. This has been corrected to `0.08 - 0.15 m/s`. This adjustment has fundamentally resolved the low success rate issue and validated the algorithm's effectiveness.
 
-1.  **Logic Fix:** Implemented strict mutual exclusivity between `Collision`, `Success`, and `Timeout` events to prevent "Collision-Success" logic bugs.
-2.  **Physics Tuning:** Reduced simulation time step (`DT`) to **0.1s** and increased obstacle detection radius to **0.8m-1.0m** to account for the robot's turning radius and physical inertia.
-3.  **Reward Shaping:** Inverted the "Greed vs. Fear" ratio.
-    * Increased Obstacle Penalty (`-1.2`) to strictly outweigh Shaping Reward (`0.4`).
-    * This forces the agent to choose safe detours instead of risky shortcuts.
-4.  **Architecture:** Increased GRU hidden dimension to **128** to better capture complex dynamic environments.
+**Previous Improvements (Nov 21):**
+1.  **Logic Fix:** Implemented strict mutual exclusivity between collision, success, and timeout events.
+2.  **Physics Tuning:** Reduced simulation time step (`DT`) to **0.1s** and adjusted detection radius.
+3.  **Reward Shaping:** Prioritized obstacle penalties (`-1.0`) over shaping rewards.
+4.  **Architecture:** Increased GRU hidden dimension to **128**.
 
-## 📊 Training Results
+## 🏆 Model Selection
 
-The model demonstrates stable convergence and robust obstacle avoidance capabilities (Results from `results_1121`).
+We provide two trained model versions with distinct behavioral characteristics. 
 
-| **Training Metrics** | **Description** |
+### 🌟 **Recommended: Aggressive Model (Results 12_1)**
+* **Location:** `results12_1/`
+* **Behavior:** Highly efficient and agile. It takes tighter turns and optimized paths to reach the target quickly.
+* **Use Case:** **Strongly Recommended** for general tasks where efficiency is a priority.
+
+### 🛡️ **Alternative: Conservative Model (Results 12_2)**
+* **Location:** `results_12_2/`
+* **Behavior:** Prioritizes safety above all else. It tends to maintain a larger buffer distance from obstacles and may take longer, wider paths to ensure zero collisions.
+* **Use Case:** Scenarios requiring maximum safety margins.
+
+## 📊 Training Results (Conservative Model - 12_2)
+
+The following visualizations analyze the performance of the **Conservative Model (Dec 2)**.
+
+| **Training Metrics** | **Analysis & Interpretation** |
 | :---: | :--- |
-| ![Success Rate](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure3.png?raw=true) | **Success Rate & Rewards:** Aggressive Breakthrough: The agent achieves a stable ~42% Success Rate, a 2x improvement over baseline. The Mean Length drops to ~133 steps, indicating a "Speed-Run" strategy: the agent learns to minimize exposure to the high-penalty danger zones by navigating through them as quickly as possible.|
-| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure4.png?raw=true) | **Actor & Critic Loss:** Capacity Bottleneck Identified: While the Critic Loss stabilizes around ~20, its high variance suggests that the current 64-unit GRU is reaching its memory capacity limit in this complex dynamic environment. Future iterations will scale to 128/256 units to further reduce prediction error.|
-| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure2.png?raw=true) | **Entropy & SPS:** Active Adaptation: Entropy remains moderately high (~0.65), reflecting that the agent is still actively exploring fine-grained control policies to handle the delicate balance between the high-speed inertia and the strict obstacle penalties.|
-| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results_1121/figure1.png?raw=true) | **Detailed Rewards:** Effective Constraints: The Obstacle Penalty graph confirms the agent is heavily penalized for risky proximity, validating that the new safety constraints are actively shaping the policy, preventing the agent from loitering in dangerous areas.|
+| ![Episode Stats](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure3.png?raw=true) | **Stability & Safety:** The *Mean Success Rate* shows a robust upward trend, stabilizing at a high level. The *Mean Length* is consistent, reflecting the model's tendency to choose longer, safer detours rather than risky shortcuts. |
+| ![Losses](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure4.png?raw=true) | **Convergence:** Both *Actor* and *Critic* losses show healthy convergence patterns. The Critic Loss stabilizes effectively, indicating the GRU has successfully learned to predict the value of safe states in a dynamic environment. |
+| ![Entropy](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure2.png?raw=true) | **Policy Confidence:** *Entropy* decreases steadily, proving the agent has transitioned from random exploration to a confident, deterministic policy focused on hazard avoidance. |
+| ![Reward Components](https://github.com/sonjuonr/GRU_PPO/blob/main/results_12_2/figure1.png?raw=true) | **Behavioral Guidance:** The breakdown shows that *Obstacle Penalties* are effectively minimized over time, confirming the agent is actively learning to stay clear of the defined danger zones. |
+
+## ⚠️ Known Limitations & Future Work
+
+### The "Coincident Arrival" Edge Case
+We have identified a specific corner case where the dynamic obstacle and the robotic fish arrive at the target coordinates simultaneously. Due to the current reward structure prioritizing target reach, the agent may fail to yield in this specific "head-on" scenario.
+
+![Edge Case Demo](https://github.com/sonjuonr/GRU_PPO/blob/main/results12_1/gru_dynamic_special_cond.gif?raw=true)
+
+**Current Research:** We are developing a new predictive mechanism to detect and resolve these inevitable collision states (ICS) by factoring in target occupancy prediction.
 
 ## 🛠️ Requirements
 
@@ -75,5 +95,7 @@ This project is developed and tested with **Python 3.9**.
 ├── test_gru_fixed.py   # Simulation script with fixed obstacle scenarios for debugging
 ├── rl_utils.py         # Utility functions (GAE calculation, etc.)
 ├── runs/               # Directory for TensorBoard logs
-├── results_1121/       # Training result figures and gifs
+├── results_1121/       # Archived results (Nov 21)
+├── results12_1/        # Aggressive Model Results (Recommended)
+├── results_12_2/       # Conservative Model Results
 └── README.md           # Project documentation
