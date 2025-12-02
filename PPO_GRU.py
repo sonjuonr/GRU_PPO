@@ -10,8 +10,9 @@ import matplotlib.patches as patches
 import rl_utils
 import scipy.special
 import time
+import os # Import os for file path checks
 
-# 🌟 1. Import config and TensorBoard
+# 🌟 1. Import Config and TensorBoard
 import config
 from torch.utils.tensorboard import SummaryWriter
 
@@ -19,7 +20,8 @@ matplotlib.use("TkAgg")
 
 
 # ---------------------------------------------------------------------
-# 🌟 Auxiliary Class: Rollout Buffer (Necessary for N-Step Update)
+# 🌟 Helper Class: Rollout Buffer (Required for N-Step Update)
+# (Same as before)
 # ---------------------------------------------------------------------
 class RolloutBuffer:
     def __init__(self, buffer_size, state_dim, hidden_dim, device):
@@ -37,7 +39,7 @@ class RolloutBuffer:
         self.rewards = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
         self.dones = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
         self.values = torch.zeros((self.buffer_size, 1), dtype=torch.float32)
-        # 🌟 Must store the RNN's hidden state
+        # 🌟 Must store RNN hidden state
         self.h_actor = torch.zeros((self.buffer_size, self.hidden_dim), dtype=torch.float32)
 
         self.ptr = 0  # Buffer pointer
@@ -58,7 +60,7 @@ class RolloutBuffer:
         self.ptr += 1
 
     def compute_returns_and_advantages(self, last_value, gamma, lmbda):
-        """Calculates GAE (Generalized Advantage Estimation)"""
+        """Calculate GAE (Generalized Advantage Estimation)"""
         last_value = last_value.to('cpu')
         last_gae_lam = 0
 
@@ -82,9 +84,9 @@ class RolloutBuffer:
         self.returns = self.advantages + self.values
 
     def get_batches(self, minibatch_size):
-        """Creates sequential mini-batches for RNN"""
-        # N-Step Update: We divide the entire 2048 steps of data into N chunks
-        # (This is a simplified implementation, not handling cross-episode boundaries)
+        """Create sequential mini-batches for RNN"""
+        # N-Step Update: We divide the total 2048 steps of data into N blocks
+        # (This is a simplified implementation, without handling cross-episode boundaries)
         num_minibatches = self.buffer_size // minibatch_size
 
         # Send all data to device
@@ -96,9 +98,9 @@ class RolloutBuffer:
         self.h_actor = self.h_actor.to(self.device)
 
         indices = np.arange(self.buffer_size)
-        # Note: For RNNs, we should not fully shuffle (randomize)
-        # We "randomly" select the starting points here, but maintain order within the minibatch
-        # (This is a complex topic, here we use a simplified "randomly ordered sequential chunk")
+        # Note: For RNN, we should not fully randomize (shuffle)
+        # We randomize the starting point here, but maintain sequential order within the minibatch
+        # (This is a complex topic; we use a simplified "randomized sequential block" approach here)
         np.random.shuffle(indices.reshape(-1, minibatch_size))
 
         for start in range(0, self.buffer_size, minibatch_size):
@@ -111,12 +113,12 @@ class RolloutBuffer:
                 self.log_probs[batch_indices],
                 self.advantages[batch_indices],
                 self.returns[batch_indices],
-                self.h_actor[batch_indices[0]].unsqueeze(0)  # 🌟 Use the first hidden state of this chunk as the initial state
+                self.h_actor[batch_indices[0]].unsqueeze(0)  # 🌟 Take the first hidden state of the block as the initial state
             )
 
 
 # ---------------------------------------------------------------------
-# --- Auxiliary Functions, Obstacle, State Calculation (imported config) ---
+# --- Helper Functions, Obstacle, State Calculation (Unchanged, imports config) ---
 # ---------------------------------------------------------------------
 def wrap_to_pi(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -185,7 +187,7 @@ def calculate_state(robot_x, robot_y, robot_theta, robot_vx, robot_vy,
 
 
 # ---------------------------------------------------------------------
-# 🌟 Actor-Critic Networks 
+# 🌟 Actor-Critic Networks (Unchanged)
 # ---------------------------------------------------------------------
 class ActorGRU(nn.Module):
     def __init__(self, input_dim, hidden_dim, action_dim):
@@ -219,7 +221,7 @@ class CriticGRU(nn.Module):
 
 
 # ---------------------------------------------------------------------
-# 🌟 PPO Algorithm Class (Refactored to support N-Step Update)
+# 🌟 PPO Algorithm Class
 # ---------------------------------------------------------------------
 class PPO_GRU:
     def __init__(self, state_dim, action_dim, gru_hidden_dim,
@@ -237,11 +239,11 @@ class PPO_GRU:
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
 
     def take_action(self, state, actor_hidden):
-        """(Used for Rollout) - Outputs action with gradients"""
+        """(Used for Rollout) - Outputs action with gradient"""
         state = torch.as_tensor(state, dtype=torch.float).to(self.device).unsqueeze(0)
 
         # Evaluate Actor
-        self.actor.eval()  # Ensure eval mode during rollout
+        self.actor.eval()  # Ensure in eval mode during rollout
         with torch.no_grad():
             dist, next_actor_hidden = self.actor(state, actor_hidden)
         self.actor.train()  # Switch back to train mode
@@ -251,7 +253,7 @@ class PPO_GRU:
         return action.item(), log_prob.item(), next_actor_hidden
 
     def get_value(self, state, critic_hidden):
-        """(Used for Rollout) - Gets the value of the current state"""
+        """(Used for Rollout) - Get value of current state"""
         state = torch.as_tensor(state, dtype=torch.float).to(self.device).unsqueeze(0)
 
         self.critic.eval()
@@ -264,10 +266,10 @@ class PPO_GRU:
     def update(self, buffer, writer, global_step):
         """
         N-Step Update:
-        Uses N steps of buffer data, trains for K Epochs, each Epoch divided into M Mini-Batches
+        Uses N steps of buffer data, trains for K Epochs, split into M Mini-Batches
         """
 
-        # Stores loss for TensorBoard logging
+        # Store losses for TensorBoard logging
         actor_losses = []
         critic_losses = []
         entropies = []
@@ -283,7 +285,7 @@ class PPO_GRU:
                     mb_h_actor_initial,  # Initial hidden state
                 ) = batch
 
-                # --- Recalculate Actor (Replay) ---
+                # --- Recompute Actor (Replay) ---
                 # We need to replay the entire mini-batch sequence
                 T = len(mb_states)
                 new_log_probs = []
@@ -297,7 +299,7 @@ class PPO_GRU:
                 new_log_probs = torch.stack(new_log_probs)
                 entropy_loss = torch.stack(new_entropies).mean()
 
-                # --- Recalculate Critic (Replay) ---
+                # --- Recompute Critic (Replay) ---
                 h_c = mb_h_actor_initial.detach()  # Assume Actor/Critic share state
                 new_values = []
                 for t in range(T):
@@ -330,18 +332,32 @@ class PPO_GRU:
                 critic_losses.append(critic_loss.item())
                 entropies.append(entropy_loss.item())
 
-        # 🌟 Log (Average Value)
+        # 🌟 Log Metrics (Mean Value)
         writer.add_scalar("Loss/Actor_Loss", np.mean(actor_losses), global_step)
         writer.add_scalar("Loss/Critic_Loss", np.mean(critic_losses), global_step)
         writer.add_scalar("Metrics/Entropy", np.mean(entropies), global_step)
 
 
 # --- Instantiate Agent and Environment ---
-# 🌟 All using config
+# 🌟 All parameters from config
 device = config.DEVICE
 agent = PPO_GRU(config.STATE_DIM, config.ACTION_DIM, config.GRU_HIDDEN_DIM,
                 config.ACTOR_LR, config.CRITIC_LR, config.LMBDA, config.EPOCHS,
                 config.EPS, config.GAMMA, device)
+
+# 🌟 Add model loading logic (resuming training)
+if hasattr(config, 'LOAD_MODEL_ACTOR') and os.path.exists(config.LOAD_MODEL_ACTOR):
+    print(f"🔄 Loading existing model: {config.LOAD_MODEL_ACTOR}")
+    try:
+        agent.actor.load_state_dict(torch.load(config.LOAD_MODEL_ACTOR))
+        agent.critic.load_state_dict(torch.load(config.LOAD_MODEL_CRITIC))
+        print("✅ Model loaded successfully! Resuming training...")
+    except Exception as e:
+        print(f"⚠️ Error loading model: {e}")
+        print("⚠️ Starting training from scratch.")
+else:
+    print("⚠️ No model found or configured. Starting training from scratch.")
+
 
 buffer = RolloutBuffer(config.ROLLOUT_STEPS, config.STATE_DIM, config.GRU_HIDDEN_DIM, device)
 
@@ -364,10 +380,17 @@ start_y = np.random.uniform(config.SPAWN_BOX[2], config.SPAWN_BOX[3])
 start_yaw = np.random.uniform(-np.pi, np.pi)
 target_x = np.random.uniform(config.SPAWN_BOX[0], config.SPAWN_BOX[1])
 target_y = np.random.uniform(config.SPAWN_BOX[2], config.SPAWN_BOX[3])
+
+# 🌟 Add obstacle safety check (Avoid spawning near Start/Target)
 for obs in obstacles:
     obs.reset()
-    while np.hypot(obs.x - start_x, obs.y - start_y) < config.R_OBSTACLE * 4:
+    safe_margin = config.R_OBSTACLE + config.R_ROBOT + 0.5 # Safety margin from previous discussion
+    
+    # Check if obstacle is too close to the start or target
+    while (np.hypot(obs.x - start_x, obs.y - start_y) < safe_margin) or \
+          (np.hypot(obs.x - target_x, obs.y - target_y) < safe_margin):
         obs.reset()
+
 
 x, y, theta = start_x, start_y, start_yaw
 vx, vy = 0.0, 0.0
@@ -375,7 +398,7 @@ state, _ = calculate_state(x, y, theta, vx, vy, target_x, target_y, obstacles)
 
 # --- Initialize RNN Hidden States ---
 actor_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
-critic_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)  # We need it to get the value
+critic_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)  # We need this to get the value
 
 # --- Initialize Log Trackers ---
 global_step = 0
@@ -385,14 +408,13 @@ start_time = time.time()
 # --- Main Training Loop ---
 for update_num in tqdm(range(1, num_updates + 1)):
 
-    # Clear the buffer, prepare to collect N steps of data
+    # Clear buffer, prepare to collect N steps of data
     buffer.clear()
 
-    # Temporary trackers to record reward during rollout
+    # Temporary trackers for recording rewards during rollout
     ep_rewards = []
     ep_successes = []
     ep_lengths = []
-    # 🌟 Fix 1: Add new lists
     ep_rew_success = []
     ep_rew_collision = []
     ep_rew_shaping = []
@@ -402,7 +424,13 @@ for update_num in tqdm(range(1, num_updates + 1)):
 
     current_episode_reward = 0
     current_episode_len = 0
-    # 🌟 Fix 2: Add new accumulators
+    ep_rew_success = []
+    ep_rew_collision = []
+    ep_rew_shaping = []
+    ep_rew_heading = []
+    ep_rew_obstacle = []
+    ep_rew_step = []
+
     current_ep_rew_success = 0
     current_ep_rew_collision = 0
     current_ep_rew_shaping = 0
@@ -419,7 +447,7 @@ for update_num in tqdm(range(1, num_updates + 1)):
 
         # --- Action Selection ---
         action, log_prob, next_actor_hidden = agent.take_action(state, actor_hidden)
-        value, next_critic_hidden = agent.get_value(state, critic_hidden)  # Must get the value
+        value, next_critic_hidden = agent.get_value(state, critic_hidden)
 
         v_A = config.A[action]
         v_D = config.D[action]
@@ -434,13 +462,17 @@ for update_num in tqdm(range(1, num_updates + 1)):
         dist_to_target = next_state[0]
         last_goal_dist = state[0]
 
-        # --- Initialize default values ---
+        # --- Initialize Default Values ---
         done = False
         success = 0
         reward_collision = 0.0
         reward_success = 0.0
+        reward_shaping = 0.0
+        reward_heading = 0.0
+        reward_obstacle = 0.0
+        reward_step = 0.0
 
-        # --- 1. Priority Check for Collision ---
+        # --- 1. Prioritize Collision Check ---
         collided = False
         min_dist_to_obs = float('inf')
         for obs in obstacles:
@@ -454,57 +486,50 @@ for update_num in tqdm(range(1, num_updates + 1)):
             # Failure: Collision occurred (Highest priority)
             reward_collision = config.REWARD_COLLISION
             done = True
-            success = 0  # Explicitly mark as unsuccessful
-
-            # [!!! Crucial Fix !!!]
-            # When the episode ends, all shaping rewards must be 0
-            reward_shaping = 0.0
-            reward_heading = 0.0
-            reward_obstacle = 0.0
-            reward_step = 0.0
+            success = 0 
+            # Shaping rewards must be 0
+            reward_shaping = 0.0; reward_heading = 0.0; reward_obstacle = 0.0; reward_step = 0.0
 
         elif dist_to_target < config.TARGET_REACH_THRESH:
-            # Success: Reached target (Second priority)
+            # Success: Target reached (Second priority)
             reward_success = config.REWARD_SUCCESS
             done = True
-            success = 1  # Explicitly mark as successful
+            success = 1
 
-            # [!!! Crucial Fix !!!]
-            reward_shaping = 0.0
-            reward_heading = 0.0
-            reward_obstacle = 0.0
-            reward_step = 0.0
+            # Shaping rewards must be 0
+            reward_shaping = 0.0; reward_heading = 0.0; reward_obstacle = 0.0; reward_step = 0.0
 
         elif current_episode_len >= config.STEPS_PER_EPISODE:
             # Failure: Timeout (Third priority)
             done = True
-            success = 0  # Explicitly mark as unsuccessful
+            success = 0
 
-            # [!!! Crucial Fix !!!]
-            reward_shaping = 0.0
-            reward_heading = 0.0
-            reward_obstacle = 0.0
-            reward_step = 0.0
+            # Shaping rewards must be 0
+            reward_shaping = 0.0; reward_heading = 0.0; reward_obstacle = 0.0; reward_step = 0.0
 
         else:
             # Episode continues: Calculate all shaping rewards
             done = False
             success = 0
 
-            # [!!! Crucial Fix: All shaping rewards are calculated only here !!!]
+            # CRITICAL: Calculate all shaping rewards here
             reward_shaping = (last_goal_dist - dist_to_target) * config.REWARD_SHAPING_WEIGHT
             reward_heading = config.REWARD_HEADING_WEIGHT * abs(relative_goal_angle)
-            if min_dist_to_obs < 1.0:  # Ensure the danger zone radius is 1.0
-                reward_obstacle = config.REWARD_OBSTACLE_WEIGHT * (1.0 - min_dist_to_obs / 1.0)
+            
+            # Use 1.0 as detection radius
+            threshold_dist = 1.0
+            if min_dist_to_obs < threshold_dist:
+                reward_obstacle = config.REWARD_OBSTACLE_WEIGHT * (1.0 - min_dist_to_obs / threshold_dist)
             else:
                 reward_obstacle = 0.0
+            
             reward_step = config.REWARD_STEP_WEIGHT
 
-            # Total Reward (This sum is now logically correct)
+        # Total Reward
         reward = (reward_success + reward_collision + reward_shaping +
                   reward_heading + reward_obstacle + reward_step)
 
-        # 🌟 Fix 3: Accumulate separately
+        # Accumulate rewards separately (for logging)
         current_ep_rew_success += reward_success
         current_ep_rew_collision += reward_collision
         current_ep_rew_shaping += reward_shaping
@@ -520,11 +545,11 @@ for update_num in tqdm(range(1, num_updates + 1)):
         # Update state
         state = np.copy(next_state)
         actor_hidden = next_actor_hidden
-        critic_hidden = next_critic_hidden  # Critic hidden state must also be updated
+        critic_hidden = next_critic_hidden
 
         # --- If episode ends (Done) ---
         if done:
-            # 🌟 Fix 4a: Log all components
+            # Log all components
             ep_rewards.append(current_episode_reward)
             ep_successes.append(success)
             ep_lengths.append(current_episode_len)
@@ -542,18 +567,24 @@ for update_num in tqdm(range(1, num_updates + 1)):
             start_yaw = np.random.uniform(-np.pi, np.pi)
             target_x = np.random.uniform(config.SPAWN_BOX[0], config.SPAWN_BOX[1])
             target_y = np.random.uniform(config.SPAWN_BOX[2], config.SPAWN_BOX[3])
+            
+            # 🌟 Add obstacle safety check (Avoid spawning near Start/Target)
             for obs in obstacles:
                 obs.reset()
+                safe_margin = config.R_OBSTACLE + config.R_ROBOT + 0.5
+                while (np.hypot(obs.x - start_x, obs.y - start_y) < safe_margin) or \
+                      (np.hypot(obs.x - target_x, obs.y - target_y) < safe_margin):
+                    obs.reset()
 
             x, y, theta = start_x, start_y, start_yaw
             vx, vy = 0.0, 0.0
             state, _ = calculate_state(x, y, theta, vx, vy, target_x, target_y, obstacles)
 
-            # 🌟 Reset RNN Hidden States
+            # Reset RNN Hidden States
             actor_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
             critic_hidden = torch.zeros(1, config.GRU_HIDDEN_DIM).to(device)
 
-            # 🌟 Fix 4b: Reset all accumulators
+            # Reset all accumulators
             current_episode_reward = 0
             current_episode_len = 0
 
@@ -568,26 +599,23 @@ for update_num in tqdm(range(1, num_updates + 1)):
     # 2. GAE Calculation and PPO Update
     # ---------------------------------
 
-    # Get the value of the last step in N steps, used for GAE
     with torch.no_grad():
         last_value, _ = agent.get_value(state, critic_hidden)
 
-    # Calculate GAE and Returns
     buffer.compute_returns_and_advantages(torch.tensor([last_value]).to(device), config.GAMMA, config.LMBDA)
 
-    # Perform PPO Update
+    # Execute PPO Update
     agent.update(buffer, writer, global_step)
 
-    # --- 3. Log (Rollout Level) ---
+    # --- 3. Log Metrics (Rollout Level) ---
     sps = int(global_step / (time.time() - start_time))
     writer.add_scalar("Metrics/SPS (Steps Per Second)", sps, global_step)
 
-    if len(ep_rewards) > 0:  # Only log if episodes ended during the rollout
+    if len(ep_rewards) > 0:
         writer.add_scalar("Episode/Mean_Reward", np.mean(ep_rewards), global_step)
         writer.add_scalar("Episode/Mean_Success_Rate", np.mean(ep_successes), global_step)
         writer.add_scalar("Episode/Mean_Length", np.mean(ep_lengths), global_step)
 
-        # 🌟 Fix 5: Add logs for all reward components here
         writer.add_scalar("Reward_Components/Mean_Success", np.mean(ep_rew_success), global_step)
         writer.add_scalar("Reward_Components/Mean_Collision", np.mean(ep_rew_collision), global_step)
         writer.add_scalar("Reward_Components/Mean_Shaping", np.mean(ep_rew_shaping), global_step)
@@ -600,7 +628,7 @@ for update_num in tqdm(range(1, num_updates + 1)):
         torch.save(agent.actor.state_dict(), f'gru_ppo_actor_{update_num}.pth')
         torch.save(agent.critic.state_dict(), f'gru_ppo_critic_{update_num}.pth')
 
-# --- Training Ends ---
+# --- Training Finished ---
 writer.close()
 print("Training finished. Saving final models.")
 torch.save(agent.actor.state_dict(), 'gru_ppo_actor_dynamic_final.pth')
