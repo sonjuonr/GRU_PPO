@@ -29,8 +29,8 @@ The core algorithm combines **PPO (Proximal Policy Optimization)** with a **GRU 
 
 We provide two trained model versions with distinct behavioral characteristics. 
 
-### 🌟 **Recommended: Aggressive Model (Results 12_1)**
-* **Location:** `results12_1/`
+### 🌟 **Recommended: Aggressive Model (Results12_4)**
+* **Location:** `results12_4/`
 * **Behavior:** Highly efficient and agile. It takes tighter turns and optimized paths to reach the target quickly.
 * **Use Case:** **Strongly Recommended** for general tasks where efficiency is a priority.
 
@@ -97,6 +97,6 @@ This project is developed and tested with **Python 3.9**.
 ├── rl_utils.py         # Utility functions (GAE calculation, etc.)
 ├── runs/               # Directory for TensorBoard logs
 ├── results_1121/       # Archived results (Nov 21)
-├── results12_1/        # Aggressive Model Results (Recommended)
+├── results12_4/        # Aggressive Model Results (Recommended)
 ├── results_12_2/       # Conservative Model Results
 └── README.md           # Project documentation
